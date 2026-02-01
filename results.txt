@@ -1,0 +1,64 @@
+======================================================================
+No noise
+======================================================================
+Physical error scale p1 = 0.0
+Baseline fidelity        = 1.0000
+Postselected fidelity    = 1.0000
+Postselection waste frac = 0.0000
+Corrected fidelity       = 1.0000
+
+Average injected flips per shot:
+  0 flips: 1.000
+
+======================================================================
+Low noise
+======================================================================
+Physical error scale p1 = 0.05
+Baseline fidelity        = 0.9820
+Postselected fidelity    = 1.0000
+Postselection waste frac = 0.0600
+Corrected fidelity       = 1.0000
+
+Average injected flips per shot:
+  0 flips: 0.940
+  1 flips: 0.056
+  2 flips: 0.004
+
+======================================================================
+Medium noise
+======================================================================
+Physical error scale p1 = 0.25
+Baseline fidelity        = 0.9340
+Postselected fidelity    = 1.0000
+Postselection waste frac = 0.2480
+Corrected fidelity       = 0.9980
+
+Average injected flips per shot:
+  0 flips: 0.752
+  1 flips: 0.228
+  2 flips: 0.018
+  3 flips: 0.002
+
+======================================================================
+High noise
+======================================================================
+Physical error scale p1 = 0.6
+Baseline fidelity        = 0.8080
+Postselected fidelity    = 1.0000
+Postselection waste frac = 0.5780
+Corrected fidelity       = 0.9800
+
+Average injected flips per shot:
+  0 flips: 0.418
+  1 flips: 0.522
+  2 flips: 0.056
+  3 flips: 0.004
+(iquhack) PS D:\Programming\2026-QuEra-Technical>
+
+
+
+
+
+
+
+

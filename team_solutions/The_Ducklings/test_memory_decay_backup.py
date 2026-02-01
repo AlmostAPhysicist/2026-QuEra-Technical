@@ -268,11 +268,15 @@ def benchmark_at_time(t: float, shots: int = 500, t_half: float = 1.0, dt: float
     synZ0 = color_parities([int(b) for b in baseZ])
     
     passive_fail = 0
-    active_fail = 0
+    active_perfect_fail = 0
+    active_99_fail = 0
     total_corrections = 0
     
     # Number of QEC rounds for active mode
     n_rounds = max(1, int(t / dt))
+    
+    # Gate count: ~50 gates per syndrome measurement × 2 = 100 gates per QEC round
+    gates_per_qec = 100
     
     for _ in range(shots):
         # Random Clifford state
@@ -359,14 +363,41 @@ def benchmark_at_time(t: float, shots: int = 500, t_half: float = 1.0, dt: float
         
         total_corrections += corrections_this_shot
         
+        # Perfect gates: measure with correction
         if int(meas_active) != expected:
-            active_fail += 1
+            active_perfect_fail += 1
+        
+        # ============================================================
+        # ACTIVE WITH 99% GATE FIDELITY
+        # ============================================================
+        
+        # Apply gate errors based on total gates used
+        total_gates = n_rounds * gates_per_qec
+        gate_errors = apply_cumulative_gate_errors(total_gates, gate_error_rate=0.01)
+        while len(gate_errors) < 7:
+            gate_errors.append((-1, 0))
+        
+        (g1_i, g1_b), (g2_i, g2_b), (g3_i, g3_b), (g4_i, g4_b), \
+        (g5_i, g5_b), (g6_i, g6_b), (g7_i, g7_b) = gate_errors
+        
+        meas_99 = list(
+            emu.task(qec_round_with_correction,
+                    args=(theta, phi,
+                          g1_i, g1_b, g2_i, g2_b, g3_i, g3_b,
+                          g4_i, g4_b, g5_i, g5_b, g6_i, g6_b, g7_i, g7_b,
+                          corr_index, corr_basis)
+                    ).batch_run(shots=1)
+        )[0]
+        
+        if int(meas_99) != expected:
+            active_99_fail += 1
     
     passive_fid = 1.0 - passive_fail / shots
-    active_fid = 1.0 - active_fail / shots
+    active_perfect_fid = 1.0 - active_perfect_fail / shots
+    active_99_fid = 1.0 - active_99_fail / shots
     avg_corrections = total_corrections / shots
     
-    return passive_fid, active_fid, avg_corrections
+    return passive_fid, active_perfect_fid, active_99_fid, avg_corrections
 
 
 # ============================================================
@@ -386,7 +417,7 @@ def main():
     # Storage times to test (limited for speed)
     times = [0.01, 0.05, 0.1, 0.5]
     shots = 100
-    dt = 0.01
+    dt = 0.05
     gate_fidelity = 0.99
     
     print(f"\nRunning {shots} shots per time point...")
@@ -399,24 +430,27 @@ def main():
         p_theory = error_probability(t)
         
         print(f"\n[{idx}/{len(times)}] t={t}s ({n_rounds} rounds, {shots*n_rounds} circuits)...", flush=True)
-        passive_fid, active_fid, avg_corr = benchmark_at_time(t, shots=shots, dt=dt, gate_fidelity=gate_fidelity)
+        passive_fid, active_perf_fid, active_99_fid, avg_corr = benchmark_at_time(t, shots=shots, dt=dt, gate_fidelity=gate_fidelity)
         
-        improvement = (active_fid - passive_fid) / (1.0 - passive_fid) if passive_fid < 1.0 else 0.0
+        improvement_perf = (active_perf_fid - passive_fid) / (1.0 - passive_fid) if passive_fid < 1.0 else 0.0
+        improvement_99 = (active_99_fid - passive_fid) / (1.0 - passive_fid) if passive_fid < 1.0 else 0.0
         
-        results.append((t, n_rounds, p_theory, passive_fid, active_fid, avg_corr))
+        results.append((t, n_rounds, p_theory, passive_fid, active_perf_fid, active_99_fid, avg_corr))
         
         print(f"  p_per_qubit = {p_theory:.4f}  |  Passive: {passive_fid:.4f}  |  "
-              f"Active: {active_fid:.4f}  |  Avg corr: {avg_corr:.2f}  |  Δ: {improvement:+.1%}")
+              f"Perfect QEC: {active_perf_fid:.4f}  |  99% Gates: {active_99_fid:.4f}  |  "
+              f"Avg corr: {avg_corr:.2f}  |  Δ_perf: {improvement_perf:+.1%}  |  Δ_99: {improvement_99:+.1%}")
     
     print("\n" + "="*70)
     print("SUMMARY")
     print("="*70)
-    print(f"{'Time (s)':>10} {'Rounds':>8} {'p(t)':>8} {'Passive':>10} {'Active':>10} {'Δ Fid':>10}")
+    print(f"{'Time':>8} {'Rounds':>8} {'p(t)':>8} {'Passive':>10} {'Perfect':>10} {'99% Gates':>10} {'Δ_perf':>10} {'Δ_99':>10}")
     print("-"*70)
     
-    for t, n_r, p, passive, active, _ in results:
-        delta = active - passive
-        print(f"{t:10.2f} {n_r:8d} {p:8.4f} {passive:10.4f} {active:10.4f} {delta:+10.4f}")
+    for t, n_r, p, passive, perf, g99, _ in results:
+        delta_perf = perf - passive
+        delta_99 = g99 - passive
+        print(f"{t:8.2f} {n_r:8d} {p:8.4f} {passive:10.4f} {perf:10.4f} {g99:10.4f} {delta_perf:+10.4f} {delta_99:+10.4f}")
     
     print("\n" + "="*70)
     print("KEY INSIGHTS:")
