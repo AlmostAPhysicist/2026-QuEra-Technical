@@ -114,6 +114,115 @@ def baseline_logical_fidelity(p_error, shots=200):
     return 1.0 - failures / shots
 
 
+def postselection_fidelity(p_error, shots=200):
+    """
+    POST-SELECTION: Discard shots where error is detected.
+    
+    1. Measure syndrome
+    2. If syndrome != trivial: discard (don't measure logical state)
+    3. If syndrome == trivial: measure logical Z parity
+    
+    Returns: (fidelity, acceptance_rate)
+    """
+    # Baseline syndromes (no error)
+    baseX, baseZ = list(emu.task(measure_clean_syndromes, args=(0.0, 0.0)).batch_run(shots=1))[0]
+    synX0 = color_parities([int(b) for b in baseX])
+    synZ0 = color_parities([int(b) for b in baseZ])
+    
+    accepted = 0
+    failures = 0
+    attempts = 0
+    max_attempts = shots * 20  # Allow rejection
+    
+    while accepted < shots and attempts < max_attempts:
+        attempts += 1
+        
+        if random() < p_error:
+            err_idx = randint(0, 6)
+            err_basis = randint(0, 2)
+        else:
+            err_idx = -1
+            err_basis = 0
+        
+        # Measure syndrome
+        data_bits, measX, measZ = list(emu.task(logical_memory_with_syndrome, args=(err_idx, err_basis)).batch_run(shots=1))[0]
+        
+        synX = color_parities([int(b) for b in measX])
+        synZ = color_parities([int(b) for b in measZ])
+        
+        # POST-SELECT: only accept trivial syndromes
+        if synX != synX0 or synZ != synZ0:
+            continue  # Discard this shot
+        
+        # Accepted: measure logical state
+        accepted += 1
+        bits = [int(b) for b in data_bits]
+        
+        if logical_Z_parity(bits) == 1:
+            failures += 1
+    
+    acceptance_rate = accepted / attempts if attempts > 0 else 0
+    fidelity = 1.0 - failures / accepted if accepted > 0 else 0
+    
+    return fidelity, acceptance_rate
+
+
+def correction_fidelity(p_error, shots=200):
+    """
+    CORRECTION: Detect error from syndrome and apply correction.
+    
+    1. Measure syndrome
+    2. Locate error from syndrome difference
+    3. Apply X correction on detected qubit
+    4. Measure logical Z parity
+    
+    Returns: (fidelity, correction_success_rate)
+    """
+    # Baseline syndromes (no error)
+    baseX, baseZ = list(emu.task(measure_clean_syndromes, args=(0.0, 0.0)).batch_run(shots=1))[0]
+    synX0 = color_parities([int(b) for b in baseX])
+    synZ0 = color_parities([int(b) for b in baseZ])
+    
+    failures = 0
+    corrections_applied = 0
+    
+    for _ in range(shots):
+        if random() < p_error:
+            err_idx = randint(0, 6)
+            err_basis = randint(0, 2)
+        else:
+            err_idx = -1
+            err_basis = 0
+        
+        # Measure syndrome
+        data_bits, measX, measZ = list(emu.task(logical_memory_with_syndrome, args=(err_idx, err_basis)).batch_run(shots=1))[0]
+        
+        synX = color_parities([int(b) for b in measX])
+        synZ = color_parities([int(b) for b in measZ])
+        
+        # Locate error
+        x_flip = locate_flipped_qubit(synX0, synX)
+        
+        # Apply correction
+        if x_flip != -1:
+            corrections_applied += 1
+            corr_data = list(emu.task(logical_memory_with_correction, args=(err_idx, err_basis, x_flip)).batch_run(shots=1))[0]
+            corr_bits = [int(b) for b in corr_data]
+            
+            if logical_Z_parity(corr_bits) == 1:
+                failures += 1
+        else:
+            # No error detected, just measure
+            bits = [int(b) for b in data_bits]
+            if logical_Z_parity(bits) == 1:
+                failures += 1
+    
+    correction_rate = corrections_applied / shots if shots > 0 else 0
+    fidelity = 1.0 - failures / shots
+    
+    return fidelity, correction_rate
+
+
 def qec_logical_fidelity(p_error, shots=200):
     """
     QEC fidelity WITH syndrome + correction.
