@@ -1,0 +1,17 @@
+README.md
+pyproject.toml
+qec/__init__.py
+qec/correction.py
+qec/encoding.py
+qec/error_mapping.py
+qec/errors.py
+qec/experiments.py
+qec/logical_ops.py
+qec/main.py
+qec/states.py
+qec/syndrome.py
+the_ducklings_qec.egg-info/PKG-INFO
+the_ducklings_qec.egg-info/SOURCES.txt
+the_ducklings_qec.egg-info/dependency_links.txt
+the_ducklings_qec.egg-info/requires.txt
+the_ducklings_qec.egg-info/top_level.txt

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "the-ducklings-qec"
+version = "1.0.0"
+description = "Steane [[7,1,3]] Quantum Error Correction using Bloqade"
+readme = "README.md"
+authors = [
+    {name = "The Ducklings", email = "contact@iquahck.local"}
+]
+license = {text = "MIT"}
+requires-python = ">=3.10"
+
+dependencies = [
+    # Core: Bloqade (kirin comes as dependency)
+    "bloqade>=0.32.0",
+    
+    # Circuit visualization
+    "cirq>=1.0.0",
+    
+    # Jupyter & notebooks
+    "jupyter>=1.0.0",
+    "matplotlib>=3.7.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scipy>=1.10.0",
+]
+
+[project.optional-dependencies]
+# Optional: Tsim for advanced stabilizer simulation
+tsim = ["tsim>=0.1.0"]
+
+# Optional: Stim for Clifford-only circuits
+stim = ["stim>=1.13.0"]
+
+# Development dependencies
+dev = [
+    "black>=23.0.0",
+    "pytest>=7.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.urls]
+Documentation = "https://github.com/iQuHACK/2026-QuEra-Technical/tree/main/team_solutions/The_Ducklings"
+Repository = "https://github.com/iQuHACK/2026-QuEra-Technical"
+
+[tool.setuptools]
+packages = ["qec"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
