@@ -17,7 +17,7 @@ using the Steane [[7,1,3]] color code implemented on Bloqade:
 
 HOW TO RUN:
 -----------
-    python team_solutions/The_Ducklings/run_demo.py
+    python team_solutions/The_Ducklings/demo0.py
 
 WHAT YOU'LL SEE:
 ----------------
@@ -32,7 +32,7 @@ CUSTOMIZATION:
 Edit the "PARAMETERS TO CHOOSE" section below to:
 - Change the qubit index (0-6) where error is injected
 - Change the error type ('X', 'Y', or 'Z')
-- Use a random initial state instead of |+>
+- Use a random initial state instead of |0>
 
 ============================================================
 """
@@ -47,7 +47,6 @@ sys.path.insert(0, this_dir)
 
 from qec.correction import run_full_QEC
 from qec.states import zeroState, plusState
-from random import random
 
 if __name__ == "__main__":
 

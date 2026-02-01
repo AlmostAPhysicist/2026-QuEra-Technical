@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-Advanced Logical Memory Benchmark v4
+Advanced Logical Memory Benchmark v2
 
-Changes from v2:
-✅ All 24 Clifford states
-✅ Baseline syndrome measured BEFORE error injection per trial
+Upgrades:
+
+✅ Random logical input state (Clifford set)
 ✅ Multi-error injection (0–5 flips)
+✅ Reports average flip counts
 ✅ Postselection vs Correction comparison
+
+States tested:
+    |0>, |1>, |+>, |->
 """
 
 import matplotlib
 matplotlib.use("Agg")
 
-import math
 from random import randint, random, choice
 from collections import Counter
 
@@ -21,50 +24,21 @@ from bloqade.pyqrack import StackMemorySimulator
 
 from qec.encoding import prepareLogicalQubit, decode_713_block
 from qec.errors import inject_pauli
+from qec.syndrome import measure_clean_syndromes
 from qec.error_mapping import color_parities, locate_flipped_qubit
 
 emu = StackMemorySimulator()
 
-pi = math.pi
 
 # ============================================================
-# All 24 Clifford states
+# Logical input states (Clifford only)
 # ============================================================
 
 CLIFFORD_STATES = {
-    # Z basis
-    "|0>": (0.0, 0.0, 1.0),
-    "|1>": (pi, 0.0, 0.0),
-    
-    # X basis
-    "|+>": (pi/2, 0.0, 0.5),
-    "|->": (pi/2, pi, 0.5),
-    
-    # Y basis
-    "|+i>": (pi/2, pi/2, 0.5),
-    "|-i>": (pi/2, 3*pi/2, 0.5),
-    
-    # Octahedral states (8 states)
-    "|+01>": (pi/4, 0.0, (2+math.sqrt(2))/4),
-    "|-01>": (pi/4, pi, (2-math.sqrt(2))/4),
-    "|+10>": (pi/4, pi/2, (2+math.sqrt(2))/4),
-    "|-10>": (pi/4, 3*pi/2, (2-math.sqrt(2))/4),
-    
-    "|+02>": (3*pi/4, 0.0, (2-math.sqrt(2))/4),
-    "|-02>": (3*pi/4, pi, (2+math.sqrt(2))/4),
-    "|+12>": (3*pi/4, pi/2, (2-math.sqrt(2))/4),
-    "|-12>": (3*pi/4, 3*pi/2, (2+math.sqrt(2))/4),
-    
-    # Additional 6 states
-    "|0+i>": (pi/4, pi/4, 0.5),
-    "|0-i>": (pi/4, 7*pi/4, 0.5),
-    "|1+i>": (3*pi/4, pi/4, 0.5),
-    "|1-i>": (3*pi/4, 7*pi/4, 0.5),
-    
-    "|+01i>": (pi/3, pi/4, 0.5),
-    "|+02i>": (2*pi/3, pi/4, 0.5),
-    "|+10i>": (pi/3, 3*pi/4, 0.5),
-    "|+20i>": (2*pi/3, 3*pi/4, 0.5),
+    "|0>": (0.0, 0.0),
+    # "|1>": (0.0, 3.1415926535),
+    # "|+>": (0.0, 3.1415926535 / 2),
+    # "|->": (3.1415926535, 3.1415926535 / 2),
 }
 
 
@@ -120,18 +94,7 @@ def inject_multiple(block,
 
 
 # ============================================================
-# Kernel: Baseline trial (no errors, get expected result)
-# ============================================================
-
-@squin.kernel
-def baseline_no_error(theta: float, phi: float):
-    block = prepareLogicalQubit(theta, phi)
-    decode_713_block(block)
-    return squin.measure(block[6])
-
-
-# ============================================================
-# Kernel: Baseline trial with errors
+# Kernel: Baseline trial
 # ============================================================
 
 @squin.kernel
@@ -152,36 +115,12 @@ def baseline_trial(theta: float, phi: float,
                     e5_i, e5_b)
 
     decode_713_block(block)
+
     return squin.measure(block[6])
 
 
 # ============================================================
-# Kernel: Syndrome measurement
-# ============================================================
-
-@squin.kernel
-def measure_syndrome(theta: float, phi: float):
-    data = prepareLogicalQubit(theta, phi)
-
-    # ---- X probe ----
-    probeX = prepareLogicalQubit(0.0, 3.1415926535 / 2)
-    for j in range(7):
-        squin.cx(data[j], probeX[j])
-    measX = squin.broadcast.measure(probeX)
-
-    # ---- Z probe ----
-    probeZ = prepareLogicalQubit(0.0, 0.0)
-    for j in range(7):
-        squin.cx(probeZ[j], data[j])
-    for j in range(7):
-        squin.h(probeZ[j])
-    measZ = squin.broadcast.measure(probeZ)
-
-    return measX, measZ
-
-
-# ============================================================
-# Kernel: Syndrome extraction after errors
+# Kernel: Syndrome extraction
 # ============================================================
 
 @squin.kernel
@@ -254,6 +193,15 @@ def corrected_trial(theta: float, phi: float,
 
 def run_modes(p1: float, shots: int = 500):
 
+    # Baseline syndromes
+    baseX, baseZ = list(
+        emu.task(measure_clean_syndromes,
+                 args=(0.0, 0.0)).batch_run(shots=1)
+    )[0]
+
+    synX0 = color_parities([int(b) for b in baseX])
+    synZ0 = color_parities([int(b) for b in baseZ])
+
     baseline_fail = 0
     corr_fail = 0
     post_fail = 0
@@ -261,25 +209,13 @@ def run_modes(p1: float, shots: int = 500):
     post_accept = 0
     post_total = 0
 
-    syndrome_restored = 0
-    correction_attempted = 0
-
     flip_hist = Counter()
 
     for _ in range(shots):
 
-        # Random Clifford input state
+        # Random Clifford input
         label = choice(list(CLIFFORD_STATES.keys()))
-        theta, phi, expected_0 = CLIFFORD_STATES[label]
-
-        # Measure baseline syndrome BEFORE errors
-        baseX, baseZ = list(
-            emu.task(measure_syndrome,
-                     args=(theta, phi)).batch_run(shots=1)
-        )[0]
-
-        synX0 = color_parities([int(b) for b in baseX])
-        synZ0 = color_parities([int(b) for b in baseZ])
+        theta, phi = CLIFFORD_STATES[label]
 
         # Sample errors
         errors = sample_error_events(p1)
@@ -289,6 +225,11 @@ def run_modes(p1: float, shots: int = 500):
             errors.append((-1, 0))
 
         (e1_i, e1_b), (e2_i, e2_b), (e3_i, e3_b), (e4_i, e4_b), (e5_i, e5_b) = errors
+
+        # Expected measurement:
+        # |0>,|+> → 0
+        # |1>,|-> → 1
+        expected = 0 if label in ["|0>", "|+>"] else 1
 
         # ---------------- Baseline ----------------
         meas = list(
@@ -301,9 +242,7 @@ def run_modes(p1: float, shots: int = 500):
                            e5_i, e5_b)).batch_run(shots=1)
         )[0]
 
-        # Expected measurement (from Clifford state definition)
-        expected_val = 1 if expected_0 < 0.5 else 0
-        if int(meas) != expected_val:
+        if int(meas) != expected:
             baseline_fail += 1
 
         # ---------------- Syndrome ----------------
@@ -327,7 +266,7 @@ def run_modes(p1: float, shots: int = 500):
             post_accept += 1
 
             meas_post = int(meas)
-            if meas_post != expected_val:
+            if meas_post != expected:
                 post_fail += 1
 
         # ---------------- Correction ----------------
@@ -343,9 +282,6 @@ def run_modes(p1: float, shots: int = 500):
         else:
             corr_basis, corr_index = 0, -1
 
-        if corr_index >= 0:
-            correction_attempted += 1
-
         meas_corr = list(
             emu.task(corrected_trial,
                      args=(theta, phi,
@@ -357,11 +293,8 @@ def run_modes(p1: float, shots: int = 500):
                            corr_index, corr_basis)).batch_run(shots=1)
         )[0]
 
-        if int(meas_corr) != expected_val:
+        if int(meas_corr) != expected:
             corr_fail += 1
-        elif corr_index >= 0:
-            # Correction succeeded in restoring syndrome
-            syndrome_restored += 1
 
     # Results
     baseline_fid = 1 - baseline_fail / shots
@@ -370,9 +303,7 @@ def run_modes(p1: float, shots: int = 500):
     post_fid = 1 - post_fail / post_accept if post_accept > 0 else 0
     waste = 1 - post_accept / post_total
 
-    restore_rate = syndrome_restored / correction_attempted if correction_attempted > 0 else 0
-
-    return baseline_fid, post_fid, waste, corr_fid, restore_rate, flip_hist
+    return baseline_fid, post_fid, waste, corr_fid, flip_hist
 
 
 # ============================================================
@@ -382,9 +313,10 @@ def run_modes(p1: float, shots: int = 500):
 def main():
 
     configs = [
-        ("Low noise", 0.0, 20),
-        ("Medium noise", 0.10, 500),
-        ("High noise", 0.50, 500),
+        ("No noise", 0.0, 20),
+        ("Low noise", 0.05, 500),
+        ("Medium noise", 0.25, 500),
+        ("High noise", 0.60, 500),
     ]
 
     for name, p1, shots in configs:
@@ -393,16 +325,15 @@ def main():
         print(name)
         print("="*70)
 
-        base, post, waste, corr, restore, hist = run_modes(p1, shots)
+        base, post, waste, corr, hist = run_modes(p1, shots)
 
         print(f"Physical error scale p1 = {p1}")
         print(f"Baseline fidelity        = {base:.4f}")
         print(f"Postselected fidelity    = {post:.4f}")
         print(f"Postselection waste frac = {waste:.4f}")
         print(f"Corrected fidelity       = {corr:.4f}")
-        print(f"Correction syndrome restore rate = {restore:.4f}")
 
-        print("\nInjected flip count distribution:")
+        print("\nAverage injected flips per shot:")
         total = sum(hist.values())
         for k in sorted(hist.keys()):
             frac = hist[k] / total

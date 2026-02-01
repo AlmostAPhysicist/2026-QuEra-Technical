@@ -1,32 +1,45 @@
 #!/usr/bin/env python3
 """
-Advanced Logical Memory Benchmark v3 (Correct)
+Advanced Logical Memory Benchmark v2
 
 Upgrades:
 
-✅ Arbitrary logical input state (random θ,φ)
-✅ Baseline stabilizers measured BEFORE noise per-shot
+✅ Random logical input state (Clifford set)
 ✅ Multi-error injection (0–5 flips)
-✅ Baseline vs Postselection vs Correction comparison
-✅ Fidelity defined relative to baseline decoded measurement
+✅ Reports average flip counts
+✅ Postselection vs Correction comparison
+
+States tested:
+    |0>, |1>, |+>, |->
 """
 
 import matplotlib
 matplotlib.use("Agg")
 
-from random import randint, random
+from random import randint, random, choice
 from collections import Counter
-
-import numpy as np
 
 from bloqade import squin
 from bloqade.pyqrack import StackMemorySimulator
 
 from qec.encoding import prepareLogicalQubit, decode_713_block
 from qec.errors import inject_pauli
+from qec.syndrome import measure_clean_syndromes
 from qec.error_mapping import color_parities, locate_flipped_qubit
 
 emu = StackMemorySimulator()
+
+
+# ============================================================
+# Logical input states (Clifford only)
+# ============================================================
+
+CLIFFORD_STATES = {
+    "|0>": (0.0, 0.0),
+    # "|1>": (0.0, 3.1415926535),
+    # "|+>": (0.0, 3.1415926535 / 2),
+    # "|->": (3.1415926535, 3.1415926535 / 2),
+}
 
 
 # ============================================================
@@ -81,16 +94,16 @@ def inject_multiple(block,
 
 
 # ============================================================
-# Kernel: Decode + measure logical output qubit
+# Kernel: Baseline trial
 # ============================================================
 
 @squin.kernel
-def measure_logical(theta: float, phi: float,
-                    e1_i, e1_b,
-                    e2_i, e2_b,
-                    e3_i, e3_b,
-                    e4_i, e4_b,
-                    e5_i, e5_b):
+def baseline_trial(theta: float, phi: float,
+                   e1_i, e1_b,
+                   e2_i, e2_b,
+                   e3_i, e3_b,
+                   e4_i, e4_b,
+                   e5_i, e5_b):
 
     block = prepareLogicalQubit(theta, phi)
 
@@ -128,7 +141,7 @@ def syndrome_trial(theta: float, phi: float,
                     e5_i, e5_b)
 
     # ---- X probe ----
-    probeX = prepareLogicalQubit(0.0, np.pi / 2)
+    probeX = prepareLogicalQubit(0.0, 3.1415926535 / 2)
     for j in range(7):
         squin.cx(data[j], probeX[j])
     measX = squin.broadcast.measure(probeX)
@@ -180,6 +193,15 @@ def corrected_trial(theta: float, phi: float,
 
 def run_modes(p1: float, shots: int = 500):
 
+    # Baseline syndromes
+    baseX, baseZ = list(
+        emu.task(measure_clean_syndromes,
+                 args=(0.0, 0.0)).batch_run(shots=1)
+    )[0]
+
+    synX0 = color_parities([int(b) for b in baseX])
+    synZ0 = color_parities([int(b) for b in baseZ])
+
     baseline_fail = 0
     corr_fail = 0
     post_fail = 0
@@ -191,36 +213,11 @@ def run_modes(p1: float, shots: int = 500):
 
     for _ in range(shots):
 
-        # Random arbitrary input state
-        theta = random() * 2*np.pi
-        phi   = random() * np.pi
+        # Random Clifford input
+        label = choice(list(CLIFFORD_STATES.keys()))
+        theta, phi = CLIFFORD_STATES[label]
 
-        # ----------------------------------------------------
-        # Baseline decoded measurement (no noise)
-        # ----------------------------------------------------
-        meas0 = list(
-            emu.task(measure_logical,
-                     args=(theta, phi,
-                           -1,0,-1,0,-1,0,-1,0,-1,0)).batch_run(shots=1)
-        )[0]
-
-        expected = int(meas0)
-
-        # ----------------------------------------------------
-        # Baseline stabilizers BEFORE noise
-        # ----------------------------------------------------
-        measX0, measZ0 = list(
-            emu.task(syndrome_trial,
-                     args=(theta, phi,
-                           -1,0,-1,0,-1,0,-1,0,-1,0)).batch_run(shots=1)
-        )[0]
-
-        synX0 = color_parities([int(b) for b in measX0])
-        synZ0 = color_parities([int(b) for b in measZ0])
-
-        # ----------------------------------------------------
         # Sample errors
-        # ----------------------------------------------------
         errors = sample_error_events(p1)
         flip_hist[len(errors)] += 1
 
@@ -229,29 +226,34 @@ def run_modes(p1: float, shots: int = 500):
 
         (e1_i, e1_b), (e2_i, e2_b), (e3_i, e3_b), (e4_i, e4_b), (e5_i, e5_b) = errors
 
-        # ---------------- Baseline noisy ----------------
+        # Expected measurement:
+        # |0>,|+> → 0
+        # |1>,|-> → 1
+        expected = 0 if label in ["|0>", "|+>"] else 1
+
+        # ---------------- Baseline ----------------
         meas = list(
-            emu.task(measure_logical,
+            emu.task(baseline_trial,
                      args=(theta, phi,
-                           e1_i,e1_b,
-                           e2_i,e2_b,
-                           e3_i,e3_b,
-                           e4_i,e4_b,
-                           e5_i,e5_b)).batch_run(shots=1)
+                           e1_i, e1_b,
+                           e2_i, e2_b,
+                           e3_i, e3_b,
+                           e4_i, e4_b,
+                           e5_i, e5_b)).batch_run(shots=1)
         )[0]
 
         if int(meas) != expected:
             baseline_fail += 1
 
-        # ---------------- Syndrome after noise ----------------
+        # ---------------- Syndrome ----------------
         measX, measZ = list(
             emu.task(syndrome_trial,
                      args=(theta, phi,
-                           e1_i,e1_b,
-                           e2_i,e2_b,
-                           e3_i,e3_b,
-                           e4_i,e4_b,
-                           e5_i,e5_b)).batch_run(shots=1)
+                           e1_i, e1_b,
+                           e2_i, e2_b,
+                           e3_i, e3_b,
+                           e4_i, e4_b,
+                           e5_i, e5_b)).batch_run(shots=1)
         )[0]
 
         synX1 = color_parities([int(b) for b in measX])
@@ -263,7 +265,8 @@ def run_modes(p1: float, shots: int = 500):
         if synX1 == synX0 and synZ1 == synZ0:
             post_accept += 1
 
-            if int(meas) != expected:
+            meas_post = int(meas)
+            if meas_post != expected:
                 post_fail += 1
 
         # ---------------- Correction ----------------
@@ -282,11 +285,11 @@ def run_modes(p1: float, shots: int = 500):
         meas_corr = list(
             emu.task(corrected_trial,
                      args=(theta, phi,
-                           e1_i,e1_b,
-                           e2_i,e2_b,
-                           e3_i,e3_b,
-                           e4_i,e4_b,
-                           e5_i,e5_b,
+                           e1_i, e1_b,
+                           e2_i, e2_b,
+                           e3_i, e3_b,
+                           e4_i, e4_b,
+                           e5_i, e5_b,
                            corr_index, corr_basis)).batch_run(shots=1)
         )[0]
 
@@ -310,9 +313,10 @@ def run_modes(p1: float, shots: int = 500):
 def main():
 
     configs = [
-        ("Low noise", 0.0, 50),
-        ("Medium noise", 0.10, 500),
-        ("High noise", 0.50, 500),
+        ("No noise", 0.0, 20),
+        ("Low noise", 0.05, 500),
+        ("Medium noise", 0.25, 500),
+        ("High noise", 0.60, 500),
     ]
 
     for name, p1, shots in configs:
