@@ -28,6 +28,15 @@ This notebook contains:
 3. Power-law scaling analysis at moderate noise
 4. Postselection overhead visualization
 
+#### Full QEC Pipeline as Python Script
+
+**Alternative: Run everything as a standalone Python script** (same as notebook, with interactive prompts):
+```bash
+cd team_solutions/The_Ducklings
+python run_qec_alternative.py
+```
+This script replicates all notebook functionality with ENTER prompts between sections and displays all plots inline.
+
 #### Command-Line Demos
 
 **Single QEC cycle (customizable):**
