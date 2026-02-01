@@ -1,0 +1,258 @@
+================================================================================
+FIDELITY ANALYSIS: Two Routes to Defining QEC Success
+================================================================================
+
+CONTEXT
+-------
+
+Your working QEC system (logicalQubit.py, errorMapping.py, syndrome.py) can 
+measure error correction success in two fundamentally different ways:
+
+1. ROUTE A: "Did we preserve the quantum state?"
+2. ROUTE B: "Did we restore the syndromes?"
+
+They answer different questions and may give different results!
+
+
+================================================================================
+ROUTE A: MEASUREMENT OUTCOME FIDELITY
+================================================================================
+
+DEFINITION:
+  Fidelity = (# correct Z-basis measurements) / total shots
+
+LOGIC:
+  1. Prepare logical state |ψ⟩ on 7-qubit logical block
+  2. Inject physical errors (e.g., X on qubit 3)
+  3. Extract syndrome measurements
+  4. Use syndrome diff to locate likely error location
+  5. Apply correction Pauli (e.g., X on same qubit)
+  6. Decode logical block back to physical qubit
+  7. Measure physical qubit in Z basis
+  8. Check if outcome matches expected for |ψ⟩
+
+EXPECTED VALUES:
+  |0⟩, |+⟩ → expect to measure 0
+  |1⟩, |-⟩ → expect to measure 1
+
+EXAMPLE at p1=0.0 (no errors):
+  - Baseline: no errors injected → should measure correctly → fidelity ≈ 1.0
+  - Corrected: no errors to correct, but QEC adds noise → fidelity may be < 1.0
+    (This shows: "does QEC overhead hurt us?")
+
+EXAMPLE at p1=0.15 (moderate noise):
+  - Baseline: errors injected, no correction → fidelity ≈ 0.5-0.7
+    (Some errors flip the outcome, some don't)
+  - Corrected: errors + QEC correction → fidelity ≈ 0.7-0.85
+    (If QEC works, correction helps recover true state)
+
+INTERPRETATION:
+  - High corrected_fid - baseline_fid = QEC is helping
+  - Low corrected_fid = QEC is not helping (errors still present)
+  - At p1=0, corrected should equal baseline (no errors to correct)
+
+
+================================================================================
+ROUTE B: SYNDROME RESTORATION FIDELITY
+================================================================================
+
+DEFINITION:
+  Fidelity = (# trials where syndrome returns to baseline) / total shots
+
+LOGIC:
+  1. Prepare logical state |ψ⟩, measure CLEAN syndrome (baseline reference)
+  2. Inject physical errors
+  3. Extract syndrome AFTER error (syndrome should change)
+  4. Use syndrome diff to locate likely error location
+  5. Apply correction Pauli
+  6. Extract syndrome AGAIN after correction
+  7. Check if new syndrome matches baseline (without error)
+
+EXPECTED VALUES:
+  If correction was perfect:
+    Syndrome after error ≠ baseline
+    Syndrome after correction = baseline
+    → restoration_rate ≈ 1.0
+
+  If correction was wrong:
+    Syndrome after correction still ≠ baseline
+    → restoration_rate ≈ 0.0
+
+EXAMPLE at p1=0.0 (no errors):
+  - No errors to trigger syndrome change
+  - Syndrome stays baseline throughout
+  - restoration_rate ≈ 1.0 (trivial: nothing to restore)
+
+EXAMPLE at p1=0.15 (moderate noise):
+  - Some errors trigger syndrome change (error_detection_rate)
+  - Of those, some are correctly identified and fixed
+  - restoration_rate = % where syndrome returns to baseline
+  - If too noisy, error detection fails → low restoration_rate
+
+INTERPRETATION:
+  - Measures: "did the QEC algorithm identify and correct the error?"
+  - Does NOT directly measure: "did the logical state survive?"
+  - More about QEC machinery working vs logical state being useful
+
+
+================================================================================
+KEY DIFFERENCES
+================================================================================
+
+ROUTE A: Measurement Outcome Fidelity
+├─ Directly measures: "Is the logical qubit still useful as memory?"
+├─ Tests: encode → error → correct → decode → measure → match expected
+├─ At p1=0: should be 1.0 (perfect state preservation)
+├─ Sensitive to: correction errors, measurement errors, decode errors
+└─ Physics question: "Does the quantum state survive?"
+
+ROUTE B: Syndrome Restoration Fidelity
+├─ Directly measures: "Does the error correction algorithm work?"
+├─ Tests: baseline syndrome vs syndrome after correction
+├─ At p1=0: may be < 1.0 if QEC adds noise to syndrome measurement
+├─ Sensitive to: error detection accuracy, syndrome measurement noise
+└─ Physics question: "Does the stabilizer code detect/correct errors?"
+
+
+================================================================================
+EXPECTED BEHAVIOR
+================================================================================
+
+SCENARIO: p1 = 0.0 (NO PHYSICAL ERRORS)
+
+Route A (Measurement):
+  - Baseline fidelity = 1.0 (nothing to break)
+  - Corrected fidelity = 1.0 (nothing to break, no false corrections)
+  OR slightly < 1.0 if QEC machinery itself adds noise
+
+Route B (Syndrome):
+  - error_detection_rate ≈ 0.0 (no errors, no syndrome changes)
+  - syndrome_restoration_rate ≈ 1.0 (syndrome stays clean)
+
+
+SCENARIO: p1 = 0.15 (MODERATE ERRORS)
+
+Route A (Measurement):
+  - Baseline fidelity ≈ 0.6 (some errors flip measurement)
+  - Corrected fidelity ≈ 0.75 (QEC corrects some, but not all)
+  - Improvement = 0.15 (QEC helps a bit)
+
+Route B (Syndrome):
+  - error_detection_rate ≈ 0.8 (most errors trigger syndrome change)
+  - syndrome_restoration_rate ≈ 0.85 (most detected errors get corrected)
+
+
+SCENARIO: p1 = 0.50 (HIGH ERRORS)
+
+Route A (Measurement):
+  - Baseline fidelity ≈ 0.45 (many errors break the state)
+  - Corrected fidelity ≈ 0.50 (QEC barely helps, may hurt)
+  - Improvement = negligible or negative
+
+Route B (Syndrome):
+  - error_detection_rate ≈ 0.95 (almost all errors detected)
+  - syndrome_restoration_rate ≈ 0.30 (but correction often fails under load)
+  - Shows: detection works, correction overwhelmed by noise
+
+
+================================================================================
+WHICH TO USE?
+================================================================================
+
+Use ROUTE A if:
+  ✓ You care about: "Can I store a quantum state and recover it?"
+  ✓ Relevant for: Quantum memory, state preparation fidelity
+  ✓ Metric: Logical error rate
+
+Use ROUTE B if:
+  ✓ You care about: "Does the error correction code work mechanically?"
+  ✓ Relevant for: Algorithm design, code distance analysis
+  ✓ Metric: Syndrome reliability, detection capability
+
+IDEAL SCENARIO:
+  Both high! This means:
+  - Syndrome detection works (Route B ≈ 1.0)
+  - Logical state survives (Route A ≈ 1.0)
+  = True error correction success
+
+
+================================================================================
+PRACTICAL CONSIDERATION: NOISE SOURCES
+================================================================================
+
+Route A is sensitive to:
+  1. Errors during encoding (MSD circuit)
+  2. Errors during syndrome extraction
+  3. Errors during correction application
+  4. Errors during decoding
+  5. Measurement outcome randomness
+
+Route B is sensitive to:
+  1. Errors during syndrome extraction BEFORE error (baseline)
+  2. Errors during syndrome extraction AFTER error
+  3. Errors during syndrome extraction AFTER correction
+  4. Error detection algorithm (our locate_flipped_qubit)
+
+KEY INSIGHT:
+  Route B can succeed even if final measurement fails:
+  - Syndrome perfectly restored (Route B = 1.0)
+  - But state partially scrambled (Route A < 1.0)
+  
+  This happens if: correction happens, but a SECOND error occurs during
+  the corrective Pauli gate itself!
+
+
+================================================================================
+COMPUTATIONAL COST
+================================================================================
+
+Route A per shot:
+  - 1 × prepare + inject + decode + measure
+  = Fast
+
+Route B per shot:
+  - 1 × prepare + inject + extract syndrome
+  - 1 × prepare + inject + correct + extract syndrome
+  = 2× syndrome extraction cost (slower)
+
+For large scale:
+  - Route A: ~100 shots easily
+  - Route B: ~50 shots reasonable (syndrome extraction is expensive)
+
+
+================================================================================
+SUMMARY TABLE
+================================================================================
+
+┌─────────────────┬──────────────────────┬─────────────────────────┐
+│ Metric          │ Route A               │ Route B                 │
+├─────────────────┼──────────────────────┼─────────────────────────┤
+│ Measures        │ State preservation    │ Syndrome restoration    │
+│ Key output      │ Final measurement     │ Stabilizer eigenvalues  │
+│ p1=0.0 expect   │ 1.0                  │ 1.0                     │
+│ Cost/shot       │ Low                   │ High (2× syndromes)     │
+│ Tells us        │ Is QEC useful?        │ Does QEC work?          │
+│ Best for        │ Memory benchmarks     │ Code design analysis    │
+└─────────────────┴──────────────────────┴─────────────────────────┘
+
+
+================================================================================
+RECOMMENDED APPROACH FOR YOUR PROJECT
+================================================================================
+
+Start with ROUTE A (measurement outcome fidelity):
+  1. Easy to interpret: fidelity = success rate
+  2. Direct answer: "Does the logical qubit work?"
+  3. Matches standard quantum information metrics
+  4. Lower computational cost
+
+Then validate with ROUTE B (syndrome restoration):
+  1. Diagnose where QEC fails
+  2. Understand if issue is: detection or correction
+  3. Optimize correction thresholds
+
+Run both side-by-side at different p1 values to understand:
+  - At what error rates does QEC stop helping?
+  - Is the problem detection or correction?
+  - Where should we focus optimization efforts?
+
